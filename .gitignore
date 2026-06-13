@@ -1,0 +1,11 @@
+# Compiled AutoHotkey executables
+*.exe
+
+# Local settings / state
+*.ini
+
+# Editor / OS cruft
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

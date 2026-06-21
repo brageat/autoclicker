@@ -19,8 +19,8 @@ App := { clicking: false, count: 0, dark: true, picking: false, onTop: false,
          updateChecked: false }
 
 ; Where the update checker looks for the latest published version.
-UPDATE_VERSION_URL := "https://raw.githubusercontent.com/brageat/pulse/main/VERSION"
-UPDATE_PAGE_URL    := "https://github.com/brageat/pulse"
+UPDATE_VERSION_URL := "https://raw.githubusercontent.com/brageat/auto-pulse/main/VERSION"
+UPDATE_PAGE_URL    := "https://github.com/brageat/auto-pulse"
 
 BuildGui()
 if App.hud                            ; HUD is shown by default

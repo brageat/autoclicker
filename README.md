@@ -43,7 +43,7 @@ repeatedly **click the mouse** or **press keys** on a timer.
   **popup** appears with the download link and offers to open it for you. The bottom strip
   also reflects the result: **"Auto-Pulse vX.Y.Z (up to date)"**, or a highlighted
   **"Update available: vX.Y.Z — click to download"**. Click that line to open the
-  [download page](https://github.com/brageat/pulse); when you're up to date, clicking it
+  [download page](https://github.com/brageat/auto-pulse); when you're up to date, clicking it
   re-runs the check (and re-shows the popup if an update is waiting). The check is
   best-effort — if you're offline it just stays quiet.
 

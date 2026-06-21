@@ -6,7 +6,8 @@
 ;  Start/Stop hotkey is configurable (default F6)   F8 = Capture cursor position
 ;  Action mode switches between mouse clicks and key presses.
 ;  Dark mode is toggleable via the checkbox.
-;  A small on-screen HUD (top-right corner) shows on/off status.
+;  A small on-screen HUD shows on/off status; drag its body to move it,
+;  grab an edge/corner to resize it (starts in the top-right corner).
 ;  Checks GitHub on launch and reports if a newer version exists.
 ; ============================================================
 
@@ -15,7 +16,7 @@ CoordMode("Mouse", "Screen")   ; use absolute screen coordinates
 App := { clicking: false, count: 0, dark: true, picking: false, onTop: false,
          positions: [], posIndex: 0, toggleKey: "F6", capturing: false,
          hud: true, clickTimes: [],
-         version: "1.2.0", updateAvailable: false, latestVersion: "",
+         version: "1.2.1", updateAvailable: false, latestVersion: "",
          updateChecked: false }
 
 ; Where the update checker looks for the latest published version.
@@ -28,7 +29,7 @@ if App.hud                            ; HUD is shown by default
 
 ; ---- Global hotkeys ---------------------------------------
 SetToggleHotkey(App.toggleKey)        ; start/stop (user-configurable via "Set...")
-Hotkey("F8", ArmPicker)               ; arm the position picker
+Hotkey("F8", CaptureCursorPos)        ; F8 grabs the cursor's position instantly
 
 ; Check GitHub for a newer version shortly after launch (off the UI thread's
 ; critical path; -1 => run once). Silent so a failed check stays quiet.
@@ -214,10 +215,15 @@ ShowHud() {
     if !App.HasOwnProp("hudGui")
         BuildHud()
     h := App.hudGui
-    h.Show("Hide AutoSize")                 ; realize & size to its text, still hidden
-    WinGetPos(, , &w, , h.Hwnd)             ; actual window width, in real pixels
-    MonitorGetWorkArea(MonitorGetPrimary(), , &top, &right)
-    h.Show(Format("x{} y{} NoActivate", right - w, top))   ; flush into the top-right corner
+    if !App.hudPlaced {
+        h.Show("Hide AutoSize")             ; realize & size to its text, still hidden
+        WinGetPos(, , &w, , h.Hwnd)         ; actual window width, in real pixels
+        MonitorGetWorkArea(MonitorGetPrimary(), , &top, &right)
+        h.Show(Format("x{} y{} NoActivate", right - w, top))   ; flush into the top-right corner
+        App.hudPlaced := true
+    } else {
+        h.Show("NoActivate")                ; reuse wherever the user last moved/sized it
+    }
     WinSetTransparent(225, h.Hwnd)          ; slightly see-through
     UpdateHud()
 }
@@ -226,21 +232,91 @@ BuildHud() {
     global App
     ; -DPIScale so positions/sizes are real pixels (matches MonitorGetWorkArea),
     ; which keeps the window fully on-screen at any display scaling.
-    h := Gui("+AlwaysOnTop -Caption +ToolWindow -DPIScale", "Auto-Pulse HUD")
+    ; +Resize gives it a sizing border; HudHitTest() (below) lets you drag the
+    ; body to move it and grab any edge/corner to resize it. (Dropping the old
+    ; WS_EX_TRANSPARENT click-through is what makes those grabs possible.)
+    h := Gui("+AlwaysOnTop -Caption +ToolWindow +Resize -DPIScale", "Auto-Pulse HUD")
     App.hudGui := h
-    h.Opt("+E0x20")                  ; WS_EX_TRANSPARENT -> clicks pass through
+    App.hudPlaced := false           ; first ShowHud() snaps it to the corner
     h.MarginX := 14, h.MarginY := 8
     h.BackColor := "161616"
 
     ; A Text control's height is fixed at Add() time from the *current* font,
     ; so set each line's font BEFORE adding it -- enlarging it afterward would
-    ; leave the control too short and clip the text.
+    ; leave the control too short and clip the text. LayoutHud() re-applies the
+    ; font and the box size together on resize, which keeps text from clipping.
     h.SetFont("s15 bold cDDDDDD", "Segoe UI")
     App.hudStatus := h.Add("Text", "w180 Center", "OFF")
     h.SetFont("s8 norm cAAAAAA")
     App.hudCount  := h.Add("Text", "w180 Center", "Idle")
     h.SetFont("s9 cCCCCCC")
     App.hudCps    := h.Add("Text", "w180 Center", "0.0 cps")
+
+    h.OnEvent("Size", HudSize)       ; rescale the text as the window is resized
+    OnMessage(0x84, HudHitTest)      ; WM_NCHITTEST -> drag-to-move + edge resize
+}
+
+; Re-flow the three HUD lines for the current client size: scale the fonts with
+; the window and keep the block vertically centred. Font and box are set together
+; (see BuildHud) so the larger text never clips. Colours are left alone here --
+; the status colour is owned by UpdateHud().
+LayoutHud(w, h) {
+    global App
+    if !App.HasOwnProp("hudStatus")
+        return
+    scale := w / 208.0               ; 208 = the default (auto-sized) client width
+    scale := Max(0.5, Min(scale, 5.0))
+    m   := Round(14 * scale)         ; side margin
+    cw  := w - 2 * m
+    s1  := Round(15 * scale), s2 := Round(8 * scale), s3 := Round(9 * scale)
+    h1  := Round(s1 * 2.0),   h2 := Round(s2 * 2.0),   h3 := Round(s3 * 2.0)
+    gap := Round(4 * scale)
+    y   := Max(0, (h - (h1 + h2 + h3 + 2 * gap)) // 2)   ; centre the block vertically
+
+    App.hudStatus.SetFont("s" s1 " bold", "Segoe UI"), App.hudStatus.Move(m, y, cw, h1)
+    y += h1 + gap
+    App.hudCount.SetFont("s" s2 " norm"),              App.hudCount.Move(m, y, cw, h2)
+    y += h2 + gap
+    App.hudCps.SetFont("s" s3),                        App.hudCps.Move(m, y, cw, h3)
+}
+
+; Relayout as the window is dragged-resized (skip while minimised).
+HudSize(thisGui, minMax, w, h) {
+    if minMax = -1
+        return
+    LayoutHud(w, h)
+    UpdateHud()                      ; re-apply the live status colour
+}
+
+; A borderless window has no title bar to grab, so we hit-test it ourselves:
+; the outer EDGE pixels report as resize handles and everything inside reports
+; as the caption, which turns the whole body into a move handle. Only our HUD
+; is touched; every other window falls through to default handling.
+HudHitTest(wParam, lParam, msg, hwnd) {
+    global App
+    if !App.HasOwnProp("hudGui") || hwnd != App.hudGui.Hwnd
+        return
+    x := lParam & 0xFFFF, y := (lParam >> 16) & 0xFFFF
+    if (x > 0x7FFF)
+        x -= 0x10000                 ; sign-extend (coords go negative across monitors)
+    if (y > 0x7FFF)
+        y -= 0x10000
+    WinGetPos(&wx, &wy, &ww, &wh, hwnd)
+    EDGE := 6
+    ; Map cursor to a column/row band, then pick the matching hit-test code.
+    col := (x < wx + EDGE) ? "L" : (x >= wx + ww - EDGE) ? "R" : "M"
+    row := (y < wy + EDGE) ? "T" : (y >= wy + wh - EDGE) ? "B" : "M"
+    switch row . col {
+        case "TL": return 13         ; HTTOPLEFT
+        case "TR": return 14         ; HTTOPRIGHT
+        case "BL": return 16         ; HTBOTTOMLEFT
+        case "BR": return 17         ; HTBOTTOMRIGHT
+        case "TM": return 12         ; HTTOP
+        case "BM": return 15         ; HTBOTTOM
+        case "ML": return 10         ; HTLEFT
+        case "MR": return 11         ; HTRIGHT
+    }
+    return 2                         ; HTCAPTION -> drag the body to move
 }
 
 UpdateHud() {
@@ -505,9 +581,27 @@ UpdateStatus() {
     UpdateHud()
 }
 
-; ---- Click-to-pick for the fixed position -----------------
-; Arm via the Pick button or F8, then click the target location;
-; that click's coordinates become the fixed position. Esc cancels.
+; ---- Picking the fixed position ---------------------------
+; F8 captures the cursor's current position instantly. The Pick button
+; instead arms click-to-pick -- clicking the button can't grab a position
+; directly, since at that moment the cursor is on the button itself.
+
+; F8: snapshot wherever the cursor is right now, no second click needed.
+CaptureCursorPos(*) {
+    global App
+    if App.action.Value = 2           ; key mode -> no screen position to pick
+        return
+    if App.picking                    ; mid click-to-pick? drop it and grab now
+        EndPick()
+    MouseGetPos(&mx, &my)             ; screen coords (CoordMode set at startup)
+    App.x.Value := mx
+    App.y.Value := my
+    AddPosition(mx, my)
+    App.status.Value := "Added position " mx ", " my
+}
+
+; The Pick button arms click-to-pick: the next click (off this window)
+; becomes the fixed position. Esc cancels.
 ArmPicker(*) {
     global App
     if App.action.Value = 2           ; key mode -> no screen position to pick

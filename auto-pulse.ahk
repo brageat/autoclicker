@@ -17,7 +17,7 @@ CoordMode("Mouse", "Screen")   ; use absolute screen coordinates
 App := { clicking: false, count: 0, dark: true, picking: false, onTop: false,
          positions: [], posIndex: 0, toggleKey: "F6", capturing: false,
          hud: true, clickTimes: [], held: "",
-         version: "1.3.0", updateAvailable: false, latestVersion: "",
+         version: "1.3.1", updateAvailable: false, latestVersion: "",
          updateChecked: false }
 
 ; Where the update checker looks for the latest published version.
@@ -76,7 +76,7 @@ BuildGui() {
     g.Add("GroupBox", "x10 y68 w310 h132", "Click Interval")
     g.Add("Text", "x22 y92 w90", "Interval (ms):")
     App.interval := g.Add("Edit", "x115 y89 w80 Number Background" ctrlBg)
-    g.Add("Text", "x22 y120 w90", "Random +/- (ms):")
+    g.Add("Text", "x22 y120 w90", "Random +/-:")
     App.random := g.Add("Edit", "x115 y117 w80 Number Background" ctrlBg)
     g.Add("Text", "x22 y148 w90", "Hold for (ms):")
     App.holdEdit := g.Add("Edit", "x115 y145 w80 Number Background" ctrlBg)
